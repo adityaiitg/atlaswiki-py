@@ -5,13 +5,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from atlaswiki.parser import MarkdownParser
 from atlaswiki.storage import StorageEngine
 
 
 class TestCrossPlatformParity(unittest.TestCase):
     def setUp(self):
-        self.rust_bin = Path("/Volumes/T7/Personal_MAC_DATA/Personal/github/atlaswiki/target/debug/atlaswiki")
+        self.rust_bin = Path(
+            "/Volumes/T7/Personal_MAC_DATA/Personal/github/atlaswiki/target/debug/atlaswiki"
+        )
 
     def test_python_reads_database_indexed_by_rust(self):
         if not self.rust_bin.exists():
@@ -79,11 +80,19 @@ class TestCrossPlatformParity(unittest.TestCase):
 
             # 1. Index with Python CLI engine
             from atlaswiki.cli import cmd_index
+
             cmd_index(vault, full=True)
 
             # 2. Query with Rust CLI: search
             res = subprocess.run(
-                [str(self.rust_bin), "-C", str(vault), "search", "quantum computing", "--json"],
+                [
+                    str(self.rust_bin),
+                    "-C",
+                    str(vault),
+                    "search",
+                    "quantum computing",
+                    "--json",
+                ],
                 capture_output=True,
                 text=True,
             )
@@ -92,11 +101,20 @@ class TestCrossPlatformParity(unittest.TestCase):
 
             # 3. Query with Rust CLI: backlinks
             res_bl = subprocess.run(
-                [str(self.rust_bin), "-C", str(vault), "backlinks", "Epsilon", "--json"],
+                [
+                    str(self.rust_bin),
+                    "-C",
+                    str(vault),
+                    "backlinks",
+                    "Epsilon",
+                    "--json",
+                ],
                 capture_output=True,
                 text=True,
             )
-            self.assertEqual(res_bl.returncode, 0, f"Rust backlinks failed: {res_bl.stderr}")
+            self.assertEqual(
+                res_bl.returncode, 0, f"Rust backlinks failed: {res_bl.stderr}"
+            )
             self.assertIn("Note Delta", res_bl.stdout)
 
 

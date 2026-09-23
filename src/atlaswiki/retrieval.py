@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 from atlaswiki.storage import StorageEngine
 
@@ -24,11 +24,30 @@ class QueryClassifier:
     """Classifies search queries into code symbol, natural language, or balanced hybrid."""
 
     CODE_PREFIXES = (
-        "fn ", "struct ", "class ", "impl ", "enum ", "trait ", "interface ",
-        "type ", "def ", "let ", "val ", "var "
+        "fn ",
+        "struct ",
+        "class ",
+        "impl ",
+        "enum ",
+        "trait ",
+        "interface ",
+        "type ",
+        "def ",
+        "let ",
+        "val ",
+        "var ",
     )
     CODE_EXTS = (".rs", ".py", ".ts", ".js", ".go", ".c", ".cpp", ".md")
-    NL_WORDS = {"how", "why", "what", "where", "when", "explain", "describe", "difference"}
+    NL_WORDS = {
+        "how",
+        "why",
+        "what",
+        "where",
+        "when",
+        "explain",
+        "describe",
+        "difference",
+    }
 
     @classmethod
     def classify(cls, query: str) -> HybridWeights:
@@ -47,7 +66,9 @@ class QueryClassifier:
         )
 
         if is_code:
-            return HybridWeights(bm25_weight=0.85, vector_weight=0.15, intent=QueryIntent.CODE_SYMBOL)
+            return HybridWeights(
+                bm25_weight=0.85, vector_weight=0.15, intent=QueryIntent.CODE_SYMBOL
+            )
 
         # 2. Natural language check
         lower = q.lower()
@@ -59,10 +80,16 @@ class QueryClassifier:
         )
 
         if is_nl:
-            return HybridWeights(bm25_weight=0.25, vector_weight=0.75, intent=QueryIntent.NATURAL_LANGUAGE)
+            return HybridWeights(
+                bm25_weight=0.25,
+                vector_weight=0.75,
+                intent=QueryIntent.NATURAL_LANGUAGE,
+            )
 
         # 3. Balanced hybrid
-        return HybridWeights(bm25_weight=0.50, vector_weight=0.50, intent=QueryIntent.BALANCED_HYBRID)
+        return HybridWeights(
+            bm25_weight=0.50, vector_weight=0.50, intent=QueryIntent.BALANCED_HYBRID
+        )
 
 
 class HybridRetriever:
@@ -84,7 +111,10 @@ class HybridRetriever:
         for chunk_id, title, breadcrumbs, snippet, bm25_score in raw_hits:
             if tag_filter:
                 clean_tag = tag_filter.lstrip("#").lower()
-                if clean_tag not in title.lower() and clean_tag not in breadcrumbs.lower():
+                if (
+                    clean_tag not in title.lower()
+                    and clean_tag not in breadcrumbs.lower()
+                ):
                     continue
 
             # PKB Reranker Multipliers

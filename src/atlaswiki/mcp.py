@@ -2,7 +2,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 if __package__ is None or __package__ == "":
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -208,8 +208,12 @@ def call_tool(
                     pass
 
         kg = KnowledgeGraph.from_documents(docs)
-        in_links = [e.source_title for e in kg.edges if e.target_title.lower() == title.lower()]
-        out_links = [e.target_title for e in kg.edges if e.source_title.lower() == title.lower()]
+        in_links = [
+            e.source_title for e in kg.edges if e.target_title.lower() == title.lower()
+        ]
+        out_links = [
+            e.target_title for e in kg.edges if e.source_title.lower() == title.lower()
+        ]
 
         payload = {
             "center_note": title,
@@ -246,7 +250,9 @@ def call_tool(
         seeds = args.get("seeds", [])
         max_hops = int(args.get("max_hops", 3))
         engine = GraphRagEngine.from_storage(storage)
-        result = engine.extract_context(seeds, max_hops=max_hops, max_paths=15, include_content=True)
+        result = engine.extract_context(
+            seeds, max_hops=max_hops, max_paths=15, include_content=True
+        )
         return result.markdown_context
 
     elif name == "atlaswiki_generate_moc":
@@ -254,7 +260,15 @@ def call_tool(
         synthesizer = MocSynthesizer(vault_root)
         if topic:
             reports = synthesizer.generate_moc(topic, dry_run=False)
-            out = [{"topic": r.topic, "file_path": r.file_path, "note_count": r.note_count, "hub_notes": r.hub_notes} for r in reports]
+            out = [
+                {
+                    "topic": r.topic,
+                    "file_path": r.file_path,
+                    "note_count": r.note_count,
+                    "hub_notes": r.hub_notes,
+                }
+                for r in reports
+            ]
             return json.dumps(out, indent=2)
         else:
             report = synthesizer.generate_living_index(dry_run=False)
@@ -272,8 +286,12 @@ def call_tool(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="AtlasWiki Model Context Protocol (MCP) Server")
-    parser.add_argument("-C", "--vault", default=".", help="Path to markdown vault directory")
+    parser = argparse.ArgumentParser(
+        description="AtlasWiki Model Context Protocol (MCP) Server"
+    )
+    parser.add_argument(
+        "-C", "--vault", default=".", help="Path to markdown vault directory"
+    )
     args = parser.parse_args()
 
     vault_root = Path(args.vault).resolve()
@@ -341,9 +359,7 @@ def main() -> None:
                 res = {
                     "jsonrpc": "2.0",
                     "id": req_id,
-                    "result": {
-                        "content": [{"type": "text", "text": content}]
-                    },
+                    "result": {"content": [{"type": "text", "text": content}]},
                 }
             except Exception as e:
                 res = {

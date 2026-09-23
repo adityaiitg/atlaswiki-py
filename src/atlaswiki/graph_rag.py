@@ -5,7 +5,7 @@ and linearized markdown context serialization for LLM retrieval-augmented genera
 """
 
 from __future__ import annotations
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 import heapq
 from typing import Dict, List, Optional, Set, Tuple
 
@@ -72,8 +72,12 @@ class GraphRagEngine:
     """Connective path and Steiner-tree subgraph extractor for Graph RAG."""
 
     def __init__(self) -> None:
-        self.adj: Dict[str, List[Tuple[str, str, float]]] = {}  # u -> list of (v, relation, weight)
-        self.node_info: Dict[str, Dict] = {}  # title -> {path, tags, word_count, snippet}
+        self.adj: Dict[
+            str, List[Tuple[str, str, float]]
+        ] = {}  # u -> list of (v, relation, weight)
+        self.node_info: Dict[
+            str, Dict
+        ] = {}  # title -> {path, tags, word_count, snippet}
         self.pagerank: Dict[str, float] = {}
 
     @classmethod
@@ -138,7 +142,9 @@ class GraphRagEngine:
 
         return engine
 
-    def find_shortest_path(self, start: str, target: str, max_hops: int = 4) -> Optional[GraphPath]:
+    def find_shortest_path(
+        self, start: str, target: str, max_hops: int = 4
+    ) -> Optional[GraphPath]:
         """Dijkstra shortest path search between two notes."""
         if start not in self.adj or target not in self.adj:
             return None
@@ -146,7 +152,9 @@ class GraphRagEngine:
             return GraphPath([start], [], 0.0, 0)
 
         # dist, node, path_nodes, path_edges
-        pq: List[Tuple[float, str, List[str], List[PathEdge]]] = [(0.0, start, [start], [])]
+        pq: List[Tuple[float, str, List[str], List[PathEdge]]] = [
+            (0.0, start, [start], [])
+        ]
         visited: Dict[str, float] = {start: 0.0}
 
         while pq:
@@ -162,11 +170,21 @@ class GraphRagEngine:
                 if neighbor not in visited or new_cost < visited[neighbor]:
                     visited[neighbor] = new_cost
                     edge = PathEdge(curr, neighbor, rel, weight)
-                    heapq.heappush(pq, (new_cost, neighbor, path_nodes + [neighbor], path_edges + [edge]))
+                    heapq.heappush(
+                        pq,
+                        (
+                            new_cost,
+                            neighbor,
+                            path_nodes + [neighbor],
+                            path_edges + [edge],
+                        ),
+                    )
 
         return None
 
-    def extract_paths(self, seeds: List[str], max_hops: int = 3, max_paths: int = 15) -> List[GraphPath]:
+    def extract_paths(
+        self, seeds: List[str], max_hops: int = 3, max_paths: int = 15
+    ) -> List[GraphPath]:
         paths: List[GraphPath] = []
         for i in range(len(seeds)):
             for j in range(i + 1, len(seeds)):
@@ -254,7 +272,9 @@ class GraphRagEngine:
             )
 
         node_contexts.sort(key=lambda n: n.pagerank, reverse=True)
-        md_context = self.build_markdown_context(seeds, paths, steiner, node_contexts, include_content)
+        md_context = self.build_markdown_context(
+            seeds, paths, steiner, node_contexts, include_content
+        )
 
         return GraphRagResult(
             seeds=seeds,
@@ -284,7 +304,9 @@ class GraphRagEngine:
             lines.append("_No direct connective paths found within hop distance._")
         else:
             for p in paths:
-                lines.append(f"- {p.to_linearized_string()} `(hops: {p.hop_count}, cost: {p.total_weight:.2f})`")
+                lines.append(
+                    f"- {p.to_linearized_string()} `(hops: {p.hop_count}, cost: {p.total_weight:.2f})`"
+                )
 
         if steiner and steiner.steiner_nodes:
             lines.extend(

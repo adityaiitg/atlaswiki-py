@@ -12,7 +12,9 @@ from atlaswiki.quantization import Sq8Vector
 class HnswNode:
     __slots__ = ("node_id", "vector", "sq8", "neighbors", "max_level")
 
-    def __init__(self, node_id: int, vector: List[float], sq8: Sq8Vector, max_level: int) -> None:
+    def __init__(
+        self, node_id: int, vector: List[float], sq8: Sq8Vector, max_level: int
+    ) -> None:
         self.node_id = node_id
         self.vector = vector
         self.sq8 = sq8
@@ -110,7 +112,9 @@ class HnswIndex:
         # 2. Search and connect for levels min(level, max_level) down to 0
         ep_candidates = [curr_ep]
         for lc in range(min(level, self.max_level), -1, -1):
-            candidates = self._search_layer_candidates(vector, ep_candidates, self.ef_construction, lc)
+            candidates = self._search_layer_candidates(
+                vector, ep_candidates, self.ef_construction, lc
+            )
             # Select M nearest neighbors
             candidates.sort(key=lambda x: x[0])
             max_m = self.m0 if lc == 0 else self.m
@@ -122,7 +126,10 @@ class HnswIndex:
                 neighbor_node.neighbors[lc].append(node_id)
                 # Prune if exceeding max connections
                 if len(neighbor_node.neighbors[lc]) > max_m:
-                    n_dists = [(self._dist_nodes(neighbor_id, n), n) for n in neighbor_node.neighbors[lc]]
+                    n_dists = [
+                        (self._dist_nodes(neighbor_id, n), n)
+                        for n in neighbor_node.neighbors[lc]
+                    ]
                     n_dists.sort(key=lambda x: x[0])
                     neighbor_node.neighbors[lc] = [n for _, n in n_dists[:max_m]]
 
@@ -194,7 +201,9 @@ class HnswIndex:
                         changed = True
 
         # 2. Search bottom layer with ef_search
-        candidates = self._search_layer_candidates(query, [curr_ep], max(ef_search, k), 0)
+        candidates = self._search_layer_candidates(
+            query, [curr_ep], max(ef_search, k), 0
+        )
         candidates.sort(key=lambda x: x[0])
 
         # Convert distance (1 - sim) back to cosine similarity

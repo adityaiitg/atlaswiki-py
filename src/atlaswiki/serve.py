@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
-from typing import Any, Dict
-from urllib.parse import parse_qs, unquote, urlparse
+from typing import Any
+from urllib.parse import parse_qs, urlparse
 
 from atlaswiki.graph import KnowledgeGraph
 from atlaswiki.parser import MarkdownParser
@@ -150,9 +150,15 @@ class GraphServerHandler(BaseHTTPRequestHandler):
 
 
 def run_server(vault_path: Path, storage: StorageEngine, port: int = 8888) -> None:
-    handler = type("ConfiguredHandler", (GraphServerHandler,), {"storage": storage, "vault_path": vault_path})
+    handler = type(
+        "ConfiguredHandler",
+        (GraphServerHandler,),
+        {"storage": storage, "vault_path": vault_path},
+    )
     server = HTTPServer(("127.0.0.1", port), handler)
-    print(f"\033[1;32m✓\033[0m AtlasWiki graph visualizer running at \033[1;36mhttp://127.0.0.1:{port}\033[0m")
+    print(
+        f"\033[1;32m✓\033[0m AtlasWiki graph visualizer running at \033[1;36mhttp://127.0.0.1:{port}\033[0m"
+    )
     print("\033[2mPress Ctrl+C to stop the server.\n\033[0m")
     try:
         server.serve_forever()

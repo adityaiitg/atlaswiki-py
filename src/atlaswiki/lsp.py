@@ -7,9 +7,8 @@ hover preview transclusions, and backlink references in VS Code, Neovim, and Hel
 from __future__ import annotations
 import json
 from pathlib import Path
-import re
 import sys
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from atlaswiki.storage import StorageEngine
 

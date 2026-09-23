@@ -1,5 +1,18 @@
-from atlaswiki.ast import AstChunk, AstLink, AstSection, AstTag, Frontmatter, LinkType, MetadataField, ParsedDocument
-from atlaswiki.diagnostics import DiagnosticsEngine, DiagnosticsReport, TypoCorrectionEngine
+from atlaswiki.ast import (
+    AstChunk,
+    AstLink,
+    AstSection,
+    AstTag,
+    Frontmatter,
+    LinkType,
+    MetadataField,
+    ParsedDocument,
+)
+from atlaswiki.diagnostics import (
+    DiagnosticsEngine,
+    DiagnosticsReport,
+    TypoCorrectionEngine,
+)
 from atlaswiki.graph import KnowledgeGraph, NoteNode
 from atlaswiki.graph_rag import GraphPath, GraphRagEngine, GraphRagResult, SteinerTree
 from atlaswiki.hnsw import HnswIndex
@@ -42,4 +55,3 @@ __all__ = [
     "VaultStats",
     "run_lsp_server",
 ]
-

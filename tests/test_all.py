@@ -40,7 +40,7 @@ Also check ![[Embedded Note]] and [[Target Note|Custom Alias]].
         self.assertTrue(any(t.name == "ai/ml" for t in doc.tags))
 
         # Check links
-        targets = [l.target_note for l in doc.links]
+        targets = [lnk.target_note for lnk in doc.links]
         self.assertIn("Deep Learning", targets)
         self.assertIn("Statistics", targets)
         self.assertIn("Neural Networks", targets)
@@ -48,12 +48,15 @@ Also check ![[Embedded Note]] and [[Target Note|Custom Alias]].
         self.assertIn("Target Note", targets)
 
         # Check embed
-        embed = next(l for l in doc.links if l.target_note == "Embedded Note")
+        embed = next(lnk for lnk in doc.links if lnk.target_note == "Embedded Note")
         self.assertEqual(embed.link_type, LinkType.EMBED)
 
         # Check anchor & block
-        nn_link = next(l for l in doc.links if l.target_note == "Neural Networks")
-        self.assertTrue(nn_link.target_block == "feedforward-def" or nn_link.target_heading == "feedforward-def")
+        nn_link = next(lnk for lnk in doc.links if lnk.target_note == "Neural Networks")
+        self.assertTrue(
+            nn_link.target_block == "feedforward-def"
+            or nn_link.target_heading == "feedforward-def"
+        )
 
     def test_code_block_isolation(self):
         md = """# Code Test
@@ -66,7 +69,7 @@ link = "[[Not A Real Link]]"
 Real text with [[Actual Link]] and #actual/tag.
 """
         doc = self.parser.parse_file(Path("Code.md"), md)
-        targets = [l.target_note for l in doc.links]
+        targets = [lnk.target_note for lnk in doc.links]
         self.assertIn("Actual Link", targets)
         self.assertNotIn("Not A Real Link", targets)
 
@@ -131,7 +134,9 @@ class TestKnowledgeGraph(unittest.TestCase):
         parser = MarkdownParser()
         doc_a = parser.parse_file(Path("A.md"), "# Note A\nConnects to [[Note B]].")
         doc_b = parser.parse_file(Path("B.md"), "# Note B\nConnects to [[Note C]].")
-        doc_c = parser.parse_file(Path("C.md"), "# Note C\nEnd of chain. Mentions [[Unwritten Note]].")
+        doc_c = parser.parse_file(
+            Path("C.md"), "# Note C\nEnd of chain. Mentions [[Unwritten Note]]."
+        )
         doc_d = parser.parse_file(Path("D.md"), "# Note D\nStandalone orphan.")
 
         kg = KnowledgeGraph.from_documents([doc_a, doc_b, doc_c, doc_d])
@@ -178,17 +183,33 @@ class TestDiagnosticsEngine(unittest.TestCase):
         report = engine.run([doc_query])
         self.assertTrue(len(report.diagnostics) >= 2)
 
-        typo = next((d for d in report.diagnostics if "Machne Learning" in d.message), None)
+        typo = next(
+            (d for d in report.diagnostics if "Machne Learning" in d.message), None
+        )
         self.assertIsNotNone(typo)
         self.assertEqual(typo.suggestion, "[[Machine Learning]]")
 
 
 class TestQueryClassifier(unittest.TestCase):
     def test_classification(self):
-        self.assertEqual(QueryClassifier.classify("fn compute_hash()").intent, QueryIntent.CODE_SYMBOL)
-        self.assertEqual(QueryClassifier.classify("struct VaultConfig").intent, QueryIntent.CODE_SYMBOL)
-        self.assertEqual(QueryClassifier.classify("what is the main idea of pagerank in graphs?").intent, QueryIntent.NATURAL_LANGUAGE)
-        self.assertEqual(QueryClassifier.classify("hybrid search algorithm").intent, QueryIntent.BALANCED_HYBRID)
+        self.assertEqual(
+            QueryClassifier.classify("fn compute_hash()").intent,
+            QueryIntent.CODE_SYMBOL,
+        )
+        self.assertEqual(
+            QueryClassifier.classify("struct VaultConfig").intent,
+            QueryIntent.CODE_SYMBOL,
+        )
+        self.assertEqual(
+            QueryClassifier.classify(
+                "what is the main idea of pagerank in graphs?"
+            ).intent,
+            QueryIntent.NATURAL_LANGUAGE,
+        )
+        self.assertEqual(
+            QueryClassifier.classify("hybrid search algorithm").intent,
+            QueryIntent.BALANCED_HYBRID,
+        )
 
 
 class TestQuantizationAndHnsw(unittest.TestCase):
@@ -265,7 +286,7 @@ priority:: high
         tag_names = [t.name for t in doc.tags]
         self.assertNotIn("not_a_tag", tag_names)
         self.assertNotIn("also_not_a_tag", tag_names)
-        link_targets = [l.target_note for l in doc.links]
+        link_targets = [lnk.target_note for lnk in doc.links]
         self.assertNotIn("NotALink", link_targets)
 
         # Verify Dataview attributes

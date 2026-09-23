@@ -11,7 +11,9 @@ class Sq8Vector:
 
     __slots__ = ("quantized", "min_val", "max_val", "norm")
 
-    def __init__(self, quantized: bytes, min_val: float, max_val: float, norm: float) -> None:
+    def __init__(
+        self, quantized: bytes, min_val: float, max_val: float, norm: float
+    ) -> None:
         self.quantized = quantized
         self.min_val = min_val
         self.max_val = max_val
@@ -102,7 +104,9 @@ class Sq8Vector:
     def to_bytes(self) -> bytes:
         """Pack quantized vector metadata and bytes into binary buffer."""
         # 4 bytes min, 4 bytes max, 4 bytes norm, followed by quantized bytes
-        header = struct.pack("<fffI", self.min_val, self.max_val, self.norm, len(self.quantized))
+        header = struct.pack(
+            "<fffI", self.min_val, self.max_val, self.norm, len(self.quantized)
+        )
         return header + self.quantized
 
     @classmethod

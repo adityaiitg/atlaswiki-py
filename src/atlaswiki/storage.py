@@ -433,14 +433,17 @@ class StorageEngine:
 
     def get_manifest(self, rel_path: str) -> Optional[Tuple[str, int, int]]:
         cur = self.conn.execute(
-            "SELECT hash, mtime, file_size FROM sync_manifest WHERE path = ?", (rel_path,)
+            "SELECT hash, mtime, file_size FROM sync_manifest WHERE path = ?",
+            (rel_path,),
         )
         row = cur.fetchone()
         if row:
             return row["hash"], row["mtime"], row["file_size"]
         return None
 
-    def search_fts(self, fts_query: str, limit: int = 10) -> List[Tuple[str, str, str, str, float]]:
+    def search_fts(
+        self, fts_query: str, limit: int = 10
+    ) -> List[Tuple[str, str, str, str, float]]:
         """Run BM25 search over chunks returning (chunk_id, title, breadcrumbs, snippet, score)."""
         cur = self.conn.execute(
             """
@@ -523,7 +526,9 @@ class StorageEngine:
         tag_count = c.execute("SELECT COUNT(*) FROM tags").fetchone()[0]
         chunk_count = c.execute("SELECT COUNT(*) FROM chunks").fetchone()[0]
         embed_count = c.execute("SELECT COUNT(*) FROM chunk_embeddings").fetchone()[0]
-        word_sum = c.execute("SELECT COALESCE(SUM(word_count), 0) FROM documents").fetchone()[0]
+        word_sum = c.execute(
+            "SELECT COALESCE(SUM(word_count), 0) FROM documents"
+        ).fetchone()[0]
 
         return VaultStats(
             total_documents=doc_count,
@@ -590,7 +595,9 @@ class StorageEngine:
                     (title, blob, len(vec), model),
                 )
 
-    def get_node_embedding(self, note_title: str, model: str = "node2vec") -> Optional[List[float]]:
+    def get_node_embedding(
+        self, note_title: str, model: str = "node2vec"
+    ) -> Optional[List[float]]:
         cur = self.conn.execute(
             "SELECT embedding, dimensions FROM node_embeddings WHERE node_title = ? AND model = ?",
             (note_title, model),
@@ -601,7 +608,9 @@ class StorageEngine:
         blob, dims = row[0], row[1]
         return list(struct.unpack(f"<{dims}f", blob))
 
-    def get_all_node_embeddings(self, model: str = "node2vec") -> Dict[str, List[float]]:
+    def get_all_node_embeddings(
+        self, model: str = "node2vec"
+    ) -> Dict[str, List[float]]:
         cur = self.conn.execute(
             "SELECT node_title, embedding, dimensions FROM node_embeddings WHERE model = ? ORDER BY node_title ASC",
             (model,),
@@ -611,4 +620,3 @@ class StorageEngine:
             title, blob, dims = row[0], row[1], row[2]
             results[title] = list(struct.unpack(f"<{dims}f", blob))
         return results
-

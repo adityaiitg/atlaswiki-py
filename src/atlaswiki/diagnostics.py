@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Set
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 from atlaswiki.ast import LinkType, ParsedDocument
 from atlaswiki.parser import slugify
@@ -36,7 +36,7 @@ class DiagnosticLocation:
 class Diagnostic:
     code: DiagnosticCode
     severity: DiagnosticSeverity
-    message: String
+    message: str
     location: DiagnosticLocation
     suggestion: Optional[str] = None
     notes: List[str] = field(default_factory=list)
@@ -59,16 +59,22 @@ class DiagnosticsReport:
     wanted_pages: List[WantedPage] = field(default_factory=list)
 
     def warning_count(self) -> int:
-        return sum(1 for d in self.diagnostics if d.severity == DiagnosticSeverity.WARNING)
+        return sum(
+            1 for d in self.diagnostics if d.severity == DiagnosticSeverity.WARNING
+        )
 
     def error_count(self) -> int:
-        return sum(1 for d in self.diagnostics if d.severity == DiagnosticSeverity.ERROR)
+        return sum(
+            1 for d in self.diagnostics if d.severity == DiagnosticSeverity.ERROR
+        )
 
 
 class TypoCorrectionEngine:
     """Damerau-Levenshtein typo correction engine with transposition support."""
 
-    def __init__(self, max_edit_distance: int = 3, min_similarity_ratio: float = 0.55) -> None:
+    def __init__(
+        self, max_edit_distance: int = 3, min_similarity_ratio: float = 0.55
+    ) -> None:
         self.max_edit_distance = max_edit_distance
         self.min_similarity_ratio = min_similarity_ratio
 
@@ -90,8 +96,8 @@ class TypoCorrectionEngine:
             for j in range(1, n + 1):
                 cost = 0 if a[i - 1] == b[j - 1] else 1
                 d[i][j] = min(
-                    d[i - 1][j] + 1,        # deletion
-                    d[i][j - 1] + 1,        # insertion
+                    d[i - 1][j] + 1,  # deletion
+                    d[i][j - 1] + 1,  # insertion
                     d[i - 1][j - 1] + cost,  # substitution
                 )
                 if i > 1 and j > 1 and a[i - 1] == b[j - 2] and a[i - 2] == b[j - 1]:
@@ -151,10 +157,29 @@ class DiagnosticsEngine:
         for alias in doc.frontmatter.aliases:
             self.alias_to_path[alias.lower()] = doc.path
 
-    def resolve_target(self, target: str) -> Optional[Path]:
+    def resolve_target(
+        self, target: str, from_doc_path: Optional[Path] = None
+    ) -> Optional[Path]:
         clean = target.rstrip(".md").strip()
         if not clean:
             return None
+
+        clean_norm = clean[2:] if clean.startswith("./") else clean
+        p = Path(clean_norm)
+        if p in self.notes:
+            return p
+        p_md = Path(f"{clean_norm}.md")
+        if p_md in self.notes:
+            return p_md
+
+        if from_doc_path is not None and from_doc_path.parent:
+            parent = from_doc_path.parent
+            rel = parent / p
+            if rel in self.notes:
+                return rel
+            rel_md = parent / p_md
+            if rel_md in self.notes:
+                return rel_md
 
         lower = clean.lower()
         if lower in self.title_to_path:
@@ -163,13 +188,6 @@ class DiagnosticsEngine:
             return self.alias_to_path[lower]
         if lower in self.stem_to_path:
             return self.stem_to_path[lower]
-
-        p = Path(clean)
-        if p in self.notes:
-            return p
-        p_md = Path(f"{clean}.md")
-        if p_md in self.notes:
-            return p_md
 
         return None
 
@@ -181,7 +199,9 @@ class DiagnosticsEngine:
             targets.add(alias)
         return list(targets)
 
-    def run(self, docs: List[ParsedDocument], strict_mode: bool = False) -> DiagnosticsReport:
+    def run(
+        self, docs: List[ParsedDocument], strict_mode: bool = False
+    ) -> DiagnosticsReport:
         diagnostics: List[Diagnostic] = []
         wanted_map: Dict[str, List[DiagnosticLocation]] = {}
         total_links = 0
@@ -190,7 +210,9 @@ class DiagnosticsEngine:
         for doc in docs:
             for link in doc.links:
                 total_links += 1
-                resolved_path = self.resolve_target(link.target_note)
+                resolved_path = self.resolve_target(
+                    link.target_note, from_doc_path=doc.path
+                )
 
                 loc = DiagnosticLocation(
                     file_path=doc.path,
@@ -201,7 +223,9 @@ class DiagnosticsEngine:
                 )
 
                 if resolved_path is None:
-                    suggestions = self.typo_engine.suggest(link.target_note, all_targets)
+                    suggestions = self.typo_engine.suggest(
+                        link.target_note, all_targets
+                    )
                     primary_sug = f"[[{suggestions[0]}]]" if suggestions else None
 
                     diag_code = (
@@ -217,7 +241,9 @@ class DiagnosticsEngine:
                     diagnostics.append(
                         Diagnostic(
                             code=diag_code,
-                            severity=DiagnosticSeverity.ERROR if strict_mode else DiagnosticSeverity.WARNING,
+                            severity=DiagnosticSeverity.ERROR
+                            if strict_mode
+                            else DiagnosticSeverity.WARNING,
                             message=f"target note '{link.target_note}' does not exist in vault",
                             location=loc,
                             suggestion=primary_sug,
@@ -238,13 +264,21 @@ class DiagnosticsEngine:
                         for h in target_meta["headings"]
                     )
                     if not exists:
-                        heading_sugs = self.typo_engine.suggest(clean_h, target_meta["headings"])
-                        sug = f"[[{link.target_note}#{heading_sugs[0]}]]" if heading_sugs else None
+                        heading_sugs = self.typo_engine.suggest(
+                            clean_h, target_meta["headings"]
+                        )
+                        sug = (
+                            f"[[{link.target_note}#{heading_sugs[0]}]]"
+                            if heading_sugs
+                            else None
+                        )
 
                         diagnostics.append(
                             Diagnostic(
                                 code=DiagnosticCode.BROKEN_HEADING_ANCHOR,
-                                severity=DiagnosticSeverity.ERROR if strict_mode else DiagnosticSeverity.WARNING,
+                                severity=DiagnosticSeverity.ERROR
+                                if strict_mode
+                                else DiagnosticSeverity.WARNING,
                                 message=f"heading anchor '#{clean_h}' not found in note '{link.target_note}'",
                                 location=loc,
                                 suggestion=sug,
@@ -258,7 +292,9 @@ class DiagnosticsEngine:
                         diagnostics.append(
                             Diagnostic(
                                 code=DiagnosticCode.BROKEN_BLOCK_REFERENCE,
-                                severity=DiagnosticSeverity.ERROR if strict_mode else DiagnosticSeverity.WARNING,
+                                severity=DiagnosticSeverity.ERROR
+                                if strict_mode
+                                else DiagnosticSeverity.WARNING,
                                 message=f"block reference '^{clean_b}' not found in note '{link.target_note}'",
                                 location=loc,
                             )

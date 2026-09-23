@@ -61,25 +61,35 @@ class MarkdownParser:
 
         # 3. Determine Document Title
         stem = rel_path.stem
-        title = (frontmatter.title.strip() if frontmatter.title else None) or first_h1 or stem
+        title = (
+            (frontmatter.title.strip() if frontmatter.title else None)
+            or first_h1
+            or stem
+        )
 
         # 4. Mask code blocks and inline spans to prevent false positive link/tag matches
         masked_body = self._mask_code(body)
 
         # 5. Build hierarchical sections
-        sections = self._parse_sections(body, title, body_line_offset)
+        sections = self._parse_sections(
+            body, title, body_line_offset, rel_path=rel_path
+        )
 
         # 6. Extract links and tags
-        links, tags = self._extract_links_and_tags(masked_body, sections, body_line_offset)
+        links, tags = self._extract_links_and_tags(
+            masked_body, sections, body_line_offset
+        )
 
         # Add tags from frontmatter
         for fm_tag in frontmatter.tags:
             clean_tag = fm_tag.lstrip("#")
-            if clean_tag and not any(t.name.lower() == clean_tag.lower() and t.line_number == 1 for t in tags):
+            if clean_tag and not any(
+                t.name.lower() == clean_tag.lower() and t.line_number == 1 for t in tags
+            ):
                 tags.append(AstTag(name=clean_tag, line_number=1, section_id=None))
 
         # 7. Generate semantic chunks with breadcrumbs
-        chunks = self._generate_chunks(sections, title)
+        chunks = self._generate_chunks(sections, title, rel_path=rel_path, body=body)
 
         # 8. Extract Dataview attributes
         attributes = self._extract_attributes(body, body_line_offset)
@@ -115,7 +125,7 @@ class MarkdownParser:
             return Frontmatter(), text, 1
 
         fm_text = "".join(lines[1:end_idx])
-        body_text = "".join(lines[end_idx + 1:])
+        body_text = "".join(lines[end_idx + 1 :])
         body_line_offset = end_idx + 2
 
         try:
@@ -145,7 +155,11 @@ class MarkdownParser:
         else:
             tags = []
 
-        return Frontmatter(title=title, aliases=aliases, tags=tags, custom=data), body_text, body_line_offset
+        return (
+            Frontmatter(title=title, aliases=aliases, tags=tags, custom=data),
+            body_text,
+            body_line_offset,
+        )
 
     DATAVIEW_BRACKET_RE = re.compile(r"\[([a-zA-Z0-9_\-]+)::\s*([^\]]+)\]")
     DATAVIEW_LINE_RE = re.compile(r"^([a-zA-Z0-9_\-]+)::\s*(.+)$")
@@ -180,9 +194,15 @@ class MarkdownParser:
                         output.append(" " * len(line))
                 else:
                     # Mask inline code spans `...`
-                    masked_line = re.sub(r"`[^`\n]+`", lambda m: " " * len(m.group(0)), line)
+                    masked_line = re.sub(
+                        r"`[^`\n]+`", lambda m: " " * len(m.group(0)), line
+                    )
                     # Mask inline math spans $...$
-                    masked_line = re.sub(r"(?<!\\)\$[^$\n]+(?<!\\)\$", lambda m: " " * len(m.group(0)), masked_line)
+                    masked_line = re.sub(
+                        r"(?<!\\)\$[^$\n]+(?<!\\)\$",
+                        lambda m: " " * len(m.group(0)),
+                        masked_line,
+                    )
                     output.append(masked_line)
 
         return "".join(output)
@@ -192,19 +212,38 @@ class MarkdownParser:
         for idx, line in enumerate(text.splitlines()):
             line_no = line_offset + idx
             for m in self.DATAVIEW_BRACKET_RE.finditer(line):
-                attrs.append(MetadataField(key=m.group(1).strip(), value=m.group(2).strip(), line_number=line_no))
+                attrs.append(
+                    MetadataField(
+                        key=m.group(1).strip(),
+                        value=m.group(2).strip(),
+                        line_number=line_no,
+                    )
+                )
             m_line = self.DATAVIEW_LINE_RE.match(line.strip())
             if m_line and not line.strip().startswith("["):
-                attrs.append(MetadataField(key=m_line.group(1).strip(), value=m_line.group(2).strip(), line_number=line_no))
+                attrs.append(
+                    MetadataField(
+                        key=m_line.group(1).strip(),
+                        value=m_line.group(2).strip(),
+                        line_number=line_no,
+                    )
+                )
         return attrs
 
-    def _parse_sections(self, body: str, doc_title: str, line_offset: int) -> List[AstSection]:
+    def _parse_sections(
+        self,
+        body: str,
+        doc_title: str,
+        line_offset: int,
+        rel_path: Optional[Path] = None,
+    ) -> List[AstSection]:
         lines = body.splitlines()
         if not lines:
             return []
 
         heading_re = re.compile(r"^(#{1,6})\s+(.+)$")
         raw_sections: List[Tuple[int, str, int]] = []  # (level, heading, line_idx)
+        path_slug = slugify(str(rel_path)) if rel_path else slugify(doc_title)
 
         for idx, line in enumerate(lines):
             m = heading_re.match(line)
@@ -216,7 +255,7 @@ class MarkdownParser:
         if not raw_sections:
             return [
                 AstSection(
-                    id=slugify(doc_title),
+                    id=f"{path_slug}#overview",
                     heading=doc_title,
                     level=1,
                     parent_id=None,
@@ -232,10 +271,10 @@ class MarkdownParser:
 
         # Preamble before first heading
         if raw_sections[0][2] > 0:
-            preamble_content = "\n".join(lines[:raw_sections[0][2]])
+            preamble_content = "\n".join(lines[: raw_sections[0][2]])
             sections.append(
                 AstSection(
-                    id=slugify(doc_title),
+                    id=f"{path_slug}#overview",
                     heading=doc_title,
                     level=1,
                     parent_id=None,
@@ -245,10 +284,12 @@ class MarkdownParser:
                     content=preamble_content,
                 )
             )
-            hierarchy.append((1, slugify(doc_title), doc_title))
+            hierarchy.append((1, f"{path_slug}#overview", doc_title))
 
         for i, (level, heading, line_idx) in enumerate(raw_sections):
-            next_line = raw_sections[i + 1][2] if i + 1 < len(raw_sections) else len(lines)
+            next_line = (
+                raw_sections[i + 1][2] if i + 1 < len(raw_sections) else len(lines)
+            )
             sec_content = "\n".join(lines[line_idx:next_line])
 
             # Pop hierarchy until finding a lower level
@@ -257,7 +298,7 @@ class MarkdownParser:
 
             parent_id = hierarchy[-1][1] if hierarchy else None
             breadcrumbs = [h[2] for h in hierarchy] + [heading]
-            sec_id = slugify(f"{heading}-{i}")
+            sec_id = f"{path_slug}::{i}#{slugify(heading)}"
 
             sections.append(
                 AstSection(
@@ -346,14 +387,23 @@ class MarkdownParser:
 
         return links, tags
 
-    def _find_section_id(self, line_no: int, sections: List[AstSection]) -> Optional[str]:
+    def _find_section_id(
+        self, line_no: int, sections: List[AstSection]
+    ) -> Optional[str]:
         for s in sections:
             if s.line_start <= line_no <= s.line_end:
                 return s.id
         return None
 
-    def _generate_chunks(self, sections: List[AstSection], doc_title: str) -> List[AstChunk]:
+    def _generate_chunks(
+        self,
+        sections: List[AstSection],
+        doc_title: str,
+        rel_path: Optional[Path] = None,
+        body: str = "",
+    ) -> List[AstChunk]:
         chunks: List[AstChunk] = []
+        path_slug = slugify(str(rel_path)) if rel_path else slugify(doc_title)
 
         for sec in sections:
             paragraphs = sec.content.split("\n\n")
@@ -397,5 +447,18 @@ class MarkdownParser:
                         content="\n\n".join(current_paras),
                     )
                 )
+
+        if not chunks and body.strip():
+            chunks.append(
+                AstChunk(
+                    chunk_id=f"{path_slug}::0::0",
+                    section_id=None,
+                    title=doc_title,
+                    breadcrumbs=[doc_title],
+                    line_start=1,
+                    line_end=len(body.splitlines()),
+                    content=body.strip(),
+                )
+            )
 
         return chunks

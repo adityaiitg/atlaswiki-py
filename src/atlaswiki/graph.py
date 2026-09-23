@@ -4,7 +4,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from atlaswiki.ast import ParsedDocument
 
@@ -50,6 +50,7 @@ class KnowledgeGraph:
         kg = cls()
 
         # Pass 1: Insert all existing document nodes
+        path_to_title: Dict[Path, str] = {}
         for doc in docs:
             tags = [t.name for t in doc.tags]
             node = NoteNode(
@@ -61,6 +62,7 @@ class KnowledgeGraph:
                 word_count=doc.word_count,
             )
             kg._add_node(node)
+            path_to_title[doc.path] = doc.title
 
             for alias in doc.frontmatter.aliases:
                 kg.alias_map[alias.lower()] = doc.title
@@ -72,11 +74,30 @@ class KnowledgeGraph:
                 if not target_title:
                     continue
 
-                # Resolve alias or case-insensitive title
-                resolved_target = (
-                    kg.title_map.get(target_title.lower())
-                    or kg.alias_map.get(target_title.lower())
-                )
+                clean = target_title.rstrip(".md").strip()
+                clean_norm = clean[2:] if clean.startswith("./") else clean
+                p = Path(clean_norm)
+                p_md = Path(f"{clean_norm}.md")
+
+                resolved_target = None
+                if p in path_to_title:
+                    resolved_target = path_to_title[p]
+                elif p_md in path_to_title:
+                    resolved_target = path_to_title[p_md]
+                elif doc.path.parent:
+                    parent = doc.path.parent
+                    if (parent / p) in path_to_title:
+                        resolved_target = path_to_title[parent / p]
+                    elif (parent / p_md) in path_to_title:
+                        resolved_target = path_to_title[parent / p_md]
+
+                if not resolved_target:
+                    resolved_target = (
+                        kg.title_map.get(clean.lower())
+                        or kg.title_map.get(target_title.lower())
+                        or kg.alias_map.get(clean.lower())
+                        or kg.alias_map.get(target_title.lower())
+                    )
 
                 if not resolved_target:
                     # Create dangling node
@@ -89,7 +110,9 @@ class KnowledgeGraph:
                     )
                     kg._add_node(dangling_node)
 
-                kg._add_edge(doc.title, resolved_target, link.line_number, link.context_snippet)
+                kg._add_edge(
+                    doc.title, resolved_target, link.line_number, link.context_snippet
+                )
 
         return kg
 
@@ -253,7 +276,11 @@ class KnowledgeGraph:
         """Serialize complete knowledge graph for D3.js interactive visualization."""
         nodes = []
         for n in self.nodes.values():
-            group = n.tags[0] if n.tags else ("dangling" if n.node_type == NodeType.DANGLING else "document")
+            group = (
+                n.tags[0]
+                if n.tags
+                else ("dangling" if n.node_type == NodeType.DANGLING else "document")
+            )
             nodes.append(
                 {
                     "id": n.title,
