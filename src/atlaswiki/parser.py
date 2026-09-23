@@ -13,6 +13,7 @@ from atlaswiki.ast import (
     AstTag,
     Frontmatter,
     LinkType,
+    MetadataField,
     ParsedDocument,
 )
 
@@ -80,7 +81,10 @@ class MarkdownParser:
         # 7. Generate semantic chunks with breadcrumbs
         chunks = self._generate_chunks(sections, title)
 
-        # 8. Word count
+        # 8. Extract Dataview attributes
+        attributes = self._extract_attributes(body, body_line_offset)
+
+        # 9. Word count
         word_count = len(body.split())
 
         return ParsedDocument(
@@ -93,6 +97,7 @@ class MarkdownParser:
             chunks=chunks,
             word_count=word_count,
             content_hash=content_hash,
+            attributes=attributes,
         )
 
     def _extract_frontmatter(self, text: str) -> Tuple[Frontmatter, str, int]:
@@ -142,32 +147,56 @@ class MarkdownParser:
 
         return Frontmatter(title=title, aliases=aliases, tags=tags, custom=data), body_text, body_line_offset
 
+    DATAVIEW_BRACKET_RE = re.compile(r"\[([a-zA-Z0-9_\-]+)::\s*([^\]]+)\]")
+    DATAVIEW_LINE_RE = re.compile(r"^([a-zA-Z0-9_\-]+)::\s*(.+)$")
+
     def _mask_code(self, text: str) -> str:
         lines = text.splitlines(keepends=True)
         in_fence = False
         fence_marker = ""
+        in_math_block = False
         output: List[str] = []
 
         for line in lines:
             trimmed = line.strip()
-            if not in_fence:
+            if in_fence:
+                if trimmed.startswith(fence_marker):
+                    in_fence = False
+                output.append(" " * len(line))
+            elif in_math_block:
+                if "$$" in trimmed:
+                    in_math_block = False
+                output.append(" " * len(line))
+            else:
                 if trimmed.startswith("```") or trimmed.startswith("~~~"):
                     in_fence = True
                     fence_marker = trimmed[:3]
                     output.append(" " * len(line))
-                    continue
+                elif trimmed.startswith("$$"):
+                    if trimmed.count("$$") >= 2 and len(trimmed) > 2:
+                        output.append(" " * len(line))
+                    else:
+                        in_math_block = True
+                        output.append(" " * len(line))
                 else:
-                    # Mask inline code spans
+                    # Mask inline code spans `...`
                     masked_line = re.sub(r"`[^`\n]+`", lambda m: " " * len(m.group(0)), line)
+                    # Mask inline math spans $...$
+                    masked_line = re.sub(r"(?<!\\)\$[^$\n]+(?<!\\)\$", lambda m: " " * len(m.group(0)), masked_line)
                     output.append(masked_line)
-            else:
-                if trimmed.startswith(fence_marker):
-                    in_fence = False
-                    output.append(" " * len(line))
-                else:
-                    output.append(" " * len(line))
 
         return "".join(output)
+
+    def _extract_attributes(self, text: str, line_offset: int) -> List[MetadataField]:
+        attrs: List[MetadataField] = []
+        for idx, line in enumerate(text.splitlines()):
+            line_no = line_offset + idx
+            for m in self.DATAVIEW_BRACKET_RE.finditer(line):
+                attrs.append(MetadataField(key=m.group(1).strip(), value=m.group(2).strip(), line_number=line_no))
+            m_line = self.DATAVIEW_LINE_RE.match(line.strip())
+            if m_line and not line.strip().startswith("["):
+                attrs.append(MetadataField(key=m_line.group(1).strip(), value=m_line.group(2).strip(), line_number=line_no))
+        return attrs
 
     def _parse_sections(self, body: str, doc_title: str, line_offset: int) -> List[AstSection]:
         lines = body.splitlines()

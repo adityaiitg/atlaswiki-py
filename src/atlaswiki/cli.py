@@ -10,10 +10,13 @@ if __package__ is None or __package__ == "":
 
 from atlaswiki.diagnostics import DiagnosticsEngine, DiagnosticSeverity
 from atlaswiki.graph import KnowledgeGraph
+from atlaswiki.graph_rag import GraphRagEngine
+from atlaswiki.lsp import run_lsp_server
 from atlaswiki.parser import MarkdownParser
 from atlaswiki.retrieval import HybridRetriever
 from atlaswiki.serve import run_server
 from atlaswiki.storage import StorageEngine
+from atlaswiki.synthesis import MocSynthesizer
 
 
 def get_storage(vault_path: Path) -> StorageEngine:
@@ -346,6 +349,65 @@ def cmd_check(vault_path: Path, strict: bool = False, as_json: bool = False) -> 
         sys.exit(1)
 
 
+def cmd_graph_rag(vault_path: Path, seeds: list[str], max_hops: int = 3, as_json: bool = False) -> None:
+    storage = get_storage(vault_path)
+    engine = GraphRagEngine.from_storage(storage)
+    result = engine.extract_context(seeds, max_hops=max_hops, max_paths=15, include_content=True)
+    if as_json:
+        d = {
+            "seeds": result.seeds,
+            "paths": [
+                {"nodes": p.nodes, "hop_count": p.hop_count, "total_weight": p.total_weight, "linear": p.to_linearized_string()}
+                for p in result.paths
+            ],
+            "involved_nodes": [
+                {"title": n.title, "path": n.path, "tags": n.tags, "word_count": n.word_count, "pagerank": n.pagerank}
+                for n in result.involved_nodes
+            ],
+            "markdown_context": result.markdown_context,
+        }
+        print(json.dumps(d, indent=2))
+    else:
+        print(result.markdown_context)
+
+
+def cmd_moc(vault_path: Path, topic: Optional[str] = None, dry_run: bool = False, as_json: bool = False) -> None:
+    synthesizer = MocSynthesizer(vault_path)
+    if topic:
+        reports = synthesizer.generate_moc(topic, dry_run=dry_run)
+        if as_json:
+            out = [{"topic": r.topic, "file_path": r.file_path, "note_count": r.note_count, "hub_notes": r.hub_notes} for r in reports]
+            print(json.dumps(out, indent=2))
+        else:
+            for r in reports:
+                print(f"\033[1;32m✓\033[0m Generated MOC for topic '\033[1m{r.topic}\033[0m':")
+                print(f"  File:          {r.file_path}")
+                print(f"  Notes indexed: {r.note_count}")
+                print(f"  Hub notes:     {', '.join(r.hub_notes)}")
+    else:
+        report = synthesizer.generate_living_index(dry_run=dry_run)
+        if as_json:
+            out = {
+                "index_path": report.index_path,
+                "orphans_path": report.orphans_path,
+                "total_notes": report.total_notes,
+                "total_orphans": report.total_orphans,
+                "topic_mocs": len(report.topic_mocs),
+            }
+            print(json.dumps(out, indent=2))
+        else:
+            print(f"\033[1;32m✓\033[0m Generated Living Index:")
+            print(f"  File:          {report.index_path}")
+            print(f"  Orphans file:  {report.orphans_path}")
+            print(f"  Total notes:   {report.total_notes}")
+            print(f"  Orphan notes:  {report.total_orphans}")
+            print(f"  MOCs created:  {len(report.topic_mocs)}")
+
+
+def cmd_lsp(vault_path: Path) -> None:
+    run_lsp_server(vault_path)
+
+
 def main() -> None:
     common_parser = argparse.ArgumentParser(add_help=False)
     common_parser.add_argument("-C", "--vault", default=".", help="Path to markdown vault directory")
@@ -398,12 +460,27 @@ def main() -> None:
     p_serve.add_argument("path", nargs="?", default=None, help="Path to vault")
     p_serve.add_argument("-p", "--port", type=int, default=8888, help="Port to bind")
 
+    # graph-rag
+    p_grag = subparsers.add_parser("graph-rag", parents=[common_parser], help="Graph RAG multi-hop connective context")
+    p_grag.add_argument("seeds", nargs="+", help="Seed concept notes")
+    p_grag.add_argument("-k", "--max-hops", type=int, default=3, help="Max hops")
+    p_grag.add_argument("--json", action="store_true", help="Output JSON")
+
+    # moc
+    p_moc = subparsers.add_parser("moc", parents=[common_parser], help="Generate Map of Content or living index")
+    p_moc.add_argument("topic", nargs="?", default=None, help="Topic/tag name")
+    p_moc.add_argument("--dry-run", action="store_true", help="Do not write files to disk")
+    p_moc.add_argument("--json", action="store_true", help="Output JSON")
+
+    # lsp
+    p_lsp = subparsers.add_parser("lsp", parents=[common_parser], help="Launch Language Server Protocol 3.17 server")
+
     args = parser.parse_args()
     if not args.command:
         parser.print_help()
         sys.exit(0)
 
-    vault_dir = Path(args.path or args.vault).resolve()
+    vault_dir = Path(args.path if hasattr(args, "path") and args.path else args.vault).resolve()
 
     if args.command == "index":
         cmd_index(vault_dir, full=args.full)
@@ -420,6 +497,12 @@ def main() -> None:
     elif args.command == "serve":
         storage = get_storage(vault_dir)
         run_server(vault_dir, storage, port=args.port)
+    elif args.command == "graph-rag":
+        cmd_graph_rag(vault_dir, args.seeds, max_hops=args.max_hops, as_json=args.json)
+    elif args.command == "moc":
+        cmd_moc(vault_dir, topic=args.topic, dry_run=args.dry_run, as_json=args.json)
+    elif args.command == "lsp":
+        cmd_lsp(vault_dir)
 
 
 if __name__ == "__main__":

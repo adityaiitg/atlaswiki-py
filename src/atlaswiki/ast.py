@@ -63,6 +63,13 @@ class Frontmatter:
 
 
 @dataclass
+class MetadataField:
+    key: str
+    value: str
+    line_number: int = 1
+
+
+@dataclass
 class ParsedDocument:
     path: Path
     title: str
@@ -73,3 +80,4 @@ class ParsedDocument:
     chunks: List[AstChunk]
     word_count: int
     content_hash: str
+    attributes: List[MetadataField] = field(default_factory=list)

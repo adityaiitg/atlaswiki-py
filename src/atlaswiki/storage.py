@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import struct
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -71,6 +72,7 @@ class StorageEngine:
             self.conn.execute("PRAGMA synchronous = NORMAL;")
             self.conn.execute("PRAGMA wal_autocheckpoint = 1000;")
 
+        self.conn.execute("PRAGMA mmap_size = 268435456;")
         self.conn.execute("PRAGMA cache_size = -64000;")
         self.conn.execute("PRAGMA temp_store = MEMORY;")
         self.conn.execute("PRAGMA foreign_keys = ON;")
@@ -170,6 +172,14 @@ class StorageEngine:
                     created_at          INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
                 );
 
+                CREATE TABLE IF NOT EXISTS node_embeddings (
+                    node_title          TEXT PRIMARY KEY NOT NULL,
+                    embedding           BLOB NOT NULL,
+                    dimensions          INTEGER NOT NULL,
+                    model               TEXT NOT NULL,
+                    updated_at          INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+                );
+
                 CREATE TABLE IF NOT EXISTS sync_manifest (
                     path                TEXT PRIMARY KEY NOT NULL,
                     doc_id              TEXT NOT NULL,
@@ -185,6 +195,9 @@ class StorageEngine:
                 CREATE INDEX IF NOT EXISTS idx_sections_doc_id ON sections(doc_id);
                 CREATE INDEX IF NOT EXISTS idx_links_source_doc ON links(source_doc_id);
                 CREATE INDEX IF NOT EXISTS idx_links_target_note ON links(target_note);
+                CREATE INDEX IF NOT EXISTS idx_tags_doc_id ON tags(doc_id);
+                CREATE INDEX IF NOT EXISTS idx_chunks_doc_id ON chunks(doc_id);
+                CREATE INDEX IF NOT EXISTS idx_node_embeddings_model ON node_embeddings(model);
                 CREATE INDEX IF NOT EXISTS idx_tags_doc_id ON tags(doc_id);
                 CREATE INDEX IF NOT EXISTS idx_chunks_doc_id ON chunks(doc_id);
                 """
@@ -279,6 +292,11 @@ class StorageEngine:
 
             # Insert chunks
             for chunk in doc.chunks:
+                bc_val = (
+                    " > ".join(chunk.breadcrumbs)
+                    if isinstance(chunk.breadcrumbs, (list, tuple))
+                    else str(chunk.breadcrumbs)
+                )
                 self.conn.execute(
                     """
                     INSERT INTO chunks (chunk_id, doc_id, section_id, title, breadcrumbs, line_start, line_end, content)
@@ -289,7 +307,7 @@ class StorageEngine:
                         doc_id,
                         chunk.section_id,
                         chunk.title,
-                        json.dumps(chunk.breadcrumbs),
+                        bc_val,
                         chunk.line_start,
                         chunk.line_end,
                         chunk.content,
@@ -437,7 +455,14 @@ class StorageEngine:
         )
         results: List[Tuple[str, str, str, str, float]] = []
         for r in cur.fetchall():
-            breadcrumbs = " > ".join(json.loads(r[2] or "[]"))
+            raw_bc = r[2] or ""
+            if raw_bc.startswith("["):
+                try:
+                    breadcrumbs = " > ".join(json.loads(raw_bc))
+                except Exception:
+                    breadcrumbs = raw_bc
+            else:
+                breadcrumbs = raw_bc
             results.append((r[0], r[1], breadcrumbs, r[3], float(r[4])))
         return results
 
@@ -448,10 +473,10 @@ class StorageEngine:
                    l.target_heading, l.target_block, l.alias, l.context_snippet
             FROM links l
             JOIN documents d ON l.source_doc_id = d.doc_id
-            WHERE LOWER(l.target_note) = LOWER(?) OR l.target_note = ?
+            WHERE l.target_note = ? COLLATE NOCASE
             ORDER BY d.title, l.line_number
             """,
-            (note_title, note_title),
+            (note_title,),
         )
         return [
             BacklinkRecord(
@@ -509,3 +534,81 @@ class StorageEngine:
             total_embeddings=embed_count,
             total_words=word_sum,
         )
+
+    def get_all_documents(self) -> List[Dict[str, Any]]:
+        cur = self.conn.execute(
+            """
+            SELECT doc_id, path, title, frontmatter_json, word_count, mtime, hash
+            FROM documents
+            ORDER BY title ASC
+            """
+        )
+        return [
+            {
+                "doc_id": row["doc_id"],
+                "path": row["path"],
+                "title": row["title"],
+                "frontmatter_json": row["frontmatter_json"],
+                "word_count": row["word_count"],
+                "mtime": row["mtime"],
+                "hash": row["hash"],
+            }
+            for row in cur.fetchall()
+        ]
+
+    def get_all_tags(self) -> List[str]:
+        cur = self.conn.execute("SELECT DISTINCT tag FROM tags ORDER BY tag ASC")
+        return [row["tag"] for row in cur.fetchall()]
+
+    def get_tag_count(self, tag: str) -> int:
+        clean_tag = tag.lstrip("#")
+        with_hash = f"#{clean_tag}"
+        cur = self.conn.execute(
+            "SELECT COUNT(DISTINCT doc_id) FROM tags WHERE tag = ? OR tag = ?",
+            (clean_tag, with_hash),
+        )
+        row = cur.fetchone()
+        return row[0] if row else 0
+
+    def save_node_embeddings(
+        self, embeddings: List[Tuple[str, List[float]]], model: str = "node2vec"
+    ) -> None:
+        """Save topological node embeddings to SQLite node_embeddings table."""
+        with self.conn:
+            for title, vec in embeddings:
+                blob = struct.pack(f"<{len(vec)}f", *vec)
+                self.conn.execute(
+                    """
+                    INSERT INTO node_embeddings (node_title, embedding, dimensions, model, updated_at)
+                    VALUES (?, ?, ?, ?, strftime('%s', 'now'))
+                    ON CONFLICT(node_title) DO UPDATE SET
+                        embedding = excluded.embedding,
+                        dimensions = excluded.dimensions,
+                        model = excluded.model,
+                        updated_at = excluded.updated_at
+                    """,
+                    (title, blob, len(vec), model),
+                )
+
+    def get_node_embedding(self, note_title: str, model: str = "node2vec") -> Optional[List[float]]:
+        cur = self.conn.execute(
+            "SELECT embedding, dimensions FROM node_embeddings WHERE node_title = ? AND model = ?",
+            (note_title, model),
+        )
+        row = cur.fetchone()
+        if not row:
+            return None
+        blob, dims = row[0], row[1]
+        return list(struct.unpack(f"<{dims}f", blob))
+
+    def get_all_node_embeddings(self, model: str = "node2vec") -> Dict[str, List[float]]:
+        cur = self.conn.execute(
+            "SELECT node_title, embedding, dimensions FROM node_embeddings WHERE model = ? ORDER BY node_title ASC",
+            (model,),
+        )
+        results = {}
+        for row in cur.fetchall():
+            title, blob, dims = row[0], row[1], row[2]
+            results[title] = list(struct.unpack(f"<{dims}f", blob))
+        return results
+

@@ -8,8 +8,10 @@ if __package__ is None or __package__ == "":
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from atlaswiki.graph import KnowledgeGraph
+from atlaswiki.graph_rag import GraphRagEngine
 from atlaswiki.parser import MarkdownParser
 from atlaswiki.storage import StorageEngine
+from atlaswiki.synthesis import MocSynthesizer
 
 
 def list_tools() -> List[Dict[str, Any]]:
@@ -92,6 +94,38 @@ def list_tools() -> List[Dict[str, Any]]:
             "inputSchema": {
                 "type": "object",
                 "properties": {},
+            },
+        },
+        {
+            "name": "atlaswiki_graph_rag",
+            "description": "Perform Graph RAG multi-hop connective path and Steiner-tree context extraction between concept notes for LLM reasoning.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "seeds": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of concept note titles to connect.",
+                    },
+                    "max_hops": {
+                        "type": "integer",
+                        "description": "Maximum path length in hops (default: 3).",
+                    },
+                },
+                "required": ["seeds"],
+            },
+        },
+        {
+            "name": "atlaswiki_generate_moc",
+            "description": "Generate or update an automated Map of Content (MOC) index based on tag taxonomy, PageRank centrality, and backlinks.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "topic": {
+                        "type": "string",
+                        "description": "Optional topic or tag to generate MOC for. If omitted, generates living vault index.",
+                    }
+                },
             },
         },
     ]
@@ -207,6 +241,31 @@ def call_tool(
             "total_words": s.total_words,
         }
         return json.dumps(payload, indent=2)
+
+    elif name == "atlaswiki_graph_rag":
+        seeds = args.get("seeds", [])
+        max_hops = int(args.get("max_hops", 3))
+        engine = GraphRagEngine.from_storage(storage)
+        result = engine.extract_context(seeds, max_hops=max_hops, max_paths=15, include_content=True)
+        return result.markdown_context
+
+    elif name == "atlaswiki_generate_moc":
+        topic = args.get("topic")
+        synthesizer = MocSynthesizer(vault_root)
+        if topic:
+            reports = synthesizer.generate_moc(topic, dry_run=False)
+            out = [{"topic": r.topic, "file_path": r.file_path, "note_count": r.note_count, "hub_notes": r.hub_notes} for r in reports]
+            return json.dumps(out, indent=2)
+        else:
+            report = synthesizer.generate_living_index(dry_run=False)
+            out = {
+                "index_path": report.index_path,
+                "orphans_path": report.orphans_path,
+                "total_notes": report.total_notes,
+                "total_orphans": report.total_orphans,
+                "topic_mocs": len(report.topic_mocs),
+            }
+            return json.dumps(out, indent=2)
 
     else:
         raise ValueError(f"Unknown tool: {name}")

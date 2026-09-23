@@ -108,6 +108,23 @@ class TestStorageEngine(unittest.TestCase):
             self.assertEqual(len(backlinks), 1)
             self.assertEqual(backlinks[0].source_title, "Note B")
 
+            # Documents and tags helpers
+            docs = storage.get_all_documents()
+            self.assertEqual(len(docs), 2)
+            self.assertEqual(docs[0]["title"], "Note A")
+
+            # Node embeddings persistence and retrieval
+            sample_vec = [0.1, 0.2, 0.3, 0.4]
+            storage.save_node_embeddings([("Note A", sample_vec)], model="test_model")
+            retrieved = storage.get_node_embedding("Note A", model="test_model")
+            self.assertIsNotNone(retrieved)
+            self.assertEqual(len(retrieved), 4)
+            self.assertAlmostEqual(retrieved[0], 0.1, places=5)
+
+            all_embs = storage.get_all_node_embeddings(model="test_model")
+            self.assertIn("Note A", all_embs)
+            self.assertEqual(len(all_embs["Note A"]), 4)
+
 
 class TestKnowledgeGraph(unittest.TestCase):
     def test_graph_pagerank_and_shortest_path(self):
@@ -172,6 +189,89 @@ class TestQueryClassifier(unittest.TestCase):
         self.assertEqual(QueryClassifier.classify("struct VaultConfig").intent, QueryIntent.CODE_SYMBOL)
         self.assertEqual(QueryClassifier.classify("what is the main idea of pagerank in graphs?").intent, QueryIntent.NATURAL_LANGUAGE)
         self.assertEqual(QueryClassifier.classify("hybrid search algorithm").intent, QueryIntent.BALANCED_HYBRID)
+
+
+class TestQuantizationAndHnsw(unittest.TestCase):
+    def test_sq8_quantization_and_recall(self):
+        from atlaswiki.quantization import Sq8Vector
+        from atlaswiki.hnsw import HnswIndex
+
+        v1 = [0.1 * i for i in range(32)]
+        v2 = [0.1 * (i + 1) for i in range(32)]
+        sq1 = Sq8Vector.from_float(v1)
+        sq2 = Sq8Vector.from_float(v2)
+
+        # Dequantize
+        f1 = sq1.to_float()
+        self.assertEqual(len(f1), 32)
+
+        # Cosine similarity error
+        sim_q = sq1.cosine_similarity(sq2)
+        self.assertTrue(sim_q > 0.95)
+
+        # HNSW test
+        index = HnswIndex(m=8, ef_construction=32)
+        for idx in range(20):
+            vec = [float(idx + j) for j in range(16)]
+            index.insert(idx, vec)
+
+        results = index.search(v1[:16], k=3)
+        self.assertTrue(len(results) > 0)
+
+
+class TestGraphRagAndSynthesis(unittest.TestCase):
+    def test_graph_rag_connective_context(self):
+        from atlaswiki.graph_rag import GraphRagEngine
+
+        parser = MarkdownParser()
+        doc_a = parser.parse_file(Path("A.md"), "# Note A\nConnects to [[Note B]]")
+        doc_b = parser.parse_file(Path("B.md"), "# Note B\nConnects to [[Note C]]")
+        doc_c = parser.parse_file(Path("C.md"), "# Note C\nTerminal node")
+
+        engine = GraphRagEngine.from_documents([doc_a, doc_b, doc_c])
+        res = engine.extract_context(["Note A", "Note C"], max_hops=3, max_paths=5)
+        self.assertTrue(len(res.paths) > 0)
+        self.assertIn("[[Note A]]", res.markdown_context)
+        self.assertIn("[[Note C]]", res.markdown_context)
+
+    def test_synthesis_idempotency(self):
+        from atlaswiki.synthesis import update_synthesis_content
+
+        user_content = "# My Manual Notes\nUser line 1\n<!-- ATLASWIKI:BEGIN_SYNTHESIS -->\nOld Index\n<!-- ATLASWIKI:END_SYNTHESIS -->\n## User section 2\nKeep this!"
+        new_synthesis = "New Synthesized Index 2.0"
+        updated = update_synthesis_content(user_content, new_synthesis)
+
+        self.assertIn("User line 1", updated)
+        self.assertIn("Keep this!", updated)
+        self.assertIn("New Synthesized Index 2.0", updated)
+        self.assertNotIn("Old Index", updated)
+
+
+class TestMathAndDataview(unittest.TestCase):
+    def test_math_isolation_and_dataview_fields(self):
+        parser = MarkdownParser()
+        md = """# Formula Note
+Here is inline math: $E = mc^2$ and $x_i #not_a_tag$.
+And block math:
+$$
+\\begin{matrix} 1 & 0 \\\\ 0 & 1 \\end{matrix} #also_not_a_tag [[NotALink]]
+$$
+Dataview fields:
+[status:: active]
+priority:: high
+"""
+        doc = parser.parse_file(Path("Math.md"), md)
+        # Verify no false tags or links extracted from math
+        tag_names = [t.name for t in doc.tags]
+        self.assertNotIn("not_a_tag", tag_names)
+        self.assertNotIn("also_not_a_tag", tag_names)
+        link_targets = [l.target_note for l in doc.links]
+        self.assertNotIn("NotALink", link_targets)
+
+        # Verify Dataview attributes
+        attr_keys = {a.key: a.value for a in doc.attributes}
+        self.assertEqual(attr_keys.get("status"), "active")
+        self.assertEqual(attr_keys.get("priority"), "high")
 
 
 if __name__ == "__main__":

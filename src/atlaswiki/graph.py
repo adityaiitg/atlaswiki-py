@@ -151,6 +151,18 @@ class KnowledgeGraph:
         node = self.nodes.get(title)
         return node.pagerank if node else 0.0
 
+    def get_document_nodes(self) -> List[NoteNode]:
+        return [n for n in self.nodes.values() if n.node_type == NodeType.DOCUMENT]
+
+    def degree(self, title: str) -> Optional[Tuple[int, int]]:
+        lower = title.lower()
+        orig = self.title_map.get(lower) or self.alias_map.get(lower)
+        if not orig or orig not in self.nodes:
+            return None
+        in_deg = len(self.adj_in.get(orig, []))
+        out_deg = len(self.adj_out.get(orig, []))
+        return (in_deg, out_deg)
+
     def shortest_path(self, from_title: str, to_title: str) -> Optional[List[str]]:
         """Bidirectional BFS shortest path between Note A and Note B."""
         src = self.title_map.get(from_title.lower())
